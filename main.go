@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sipelan/common"
+	"sipelan/config"
 	"sipelan/database"
 	"sipelan/handlers"
 
@@ -18,6 +19,8 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: .env file not found, using system environment variables")
 	}
+
+	cfg := config.Load()
 
 	database.Connect()
 
@@ -67,8 +70,8 @@ func main() {
 		json.NewEncoder(w).Encode(common.Error(http.StatusNotFound, "Route not found"))
 	})
 
-	fmt.Println("Starting server on http://localhost:8080")
-	if err := http.ListenAndServe(":8080", r); err != nil {
+	fmt.Printf("Starting server on http://localhost:%s\n", cfg.ServerPort)
+	if err := http.ListenAndServe(":"+cfg.ServerPort, r); err != nil {
 		log.Fatal(err)
 	}
 }

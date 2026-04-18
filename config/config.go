@@ -12,7 +12,7 @@ type Config struct {
 
 func Load() *Config {
 	return &Config{
-		ServerPort:  getEnv("SERVER_PORT", "8080"),
+		ServerPort:  getEnv("SERVER_PORT", "8081"),
 		DatabaseURL: getEnv("DATABASE_URL", "sipelan.db"),
 	}
 }
