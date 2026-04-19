@@ -12,20 +12,43 @@ import (
 
 // CORSMiddleware handles Cross-Origin Resource Sharing headers
 // to allow the React frontend to communicate with the backend.
-func CORSMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+func CORSMiddleware(allowedOrigins string) func(http.Handler) http.Handler {
+	origins := strings.Split(allowedOrigins, ",")
 
-		// Handle preflight requests
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			origin := r.Header.Get("Origin")
 
-		next.ServeHTTP(w, r)
-	})
+			if allowedOrigins == "*" {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else if origin != "" {
+				// Check if the request origin is in our whitelist
+				isAllowed := false
+				for _, o := range origins {
+					if strings.TrimSpace(o) == origin {
+						isAllowed = true
+						break
+					}
+				}
+				if isAllowed {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					// Required for some clients when not using "*"
+					w.Header().Set("Vary", "Origin")
+				}
+			}
+
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			// Handle preflight requests
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // JSONMiddleware sets the Content-Type header to application/json.

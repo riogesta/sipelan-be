@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: sipelan-be
+    ports:
+      - "8081:8081"
+    environment:
+      - SERVER_PORT=8081
+      - DATABASE_URL=sipelan.db
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-ABCl1m4d4554r}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+    volumes:
+      - ./sipelan.db:/app/sipelan.db
+    restart: always
+    networks:
+      - private-inet
+
+networks:
+  private-inet:
+    external: true

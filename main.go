@@ -27,7 +27,7 @@ func main() {
 	r := chi.NewRouter()
 
 	// Global middleware
-	r.Use(common.CORSMiddleware)
+	r.Use(common.CORSMiddleware(cfg.AllowedOrigins))
 	r.Use(common.JSONMiddleware)
 
 	// Public routes

@@ -6,14 +6,16 @@ import (
 )
 
 type Config struct {
-	ServerPort  string
-	DatabaseURL string
+	ServerPort     string
+	DatabaseURL    string
+	AllowedOrigins string
 }
 
 func Load() *Config {
 	return &Config{
-		ServerPort:  getEnv("SERVER_PORT", "8081"),
-		DatabaseURL: getEnv("DATABASE_URL", "sipelan.db"),
+		ServerPort:     getEnv("SERVER_PORT", "8081"),
+		DatabaseURL:    getEnv("DATABASE_URL", "sipelan.db"),
+		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "*"),
 	}
 }
 
