@@ -13,34 +13,22 @@ import (
 // CORSMiddleware handles Cross-Origin Resource Sharing headers
 // to allow the React frontend to communicate with the backend.
 func CORSMiddleware(allowedOrigins string) func(http.Handler) http.Handler {
-	origins := strings.Split(allowedOrigins, ",")
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 
-			if allowedOrigins == "*" {
+			if origin != "" {
+				// Flexible CORS for development
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+			} else if allowedOrigins == "*" {
 				w.Header().Set("Access-Control-Allow-Origin", "*")
-			} else if origin != "" {
-				// Check if the request origin is in our whitelist
-				isAllowed := false
-				for _, o := range origins {
-					if strings.TrimSpace(o) == origin {
-						isAllowed = true
-						break
-					}
-				}
-				if isAllowed {
-					w.Header().Set("Access-Control-Allow-Origin", origin)
-					// Required for some clients when not using "*"
-					w.Header().Set("Vary", "Origin")
-				}
 			}
 
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie, X-Requested-With")
 
-			// Handle preflight requests
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
 				return
@@ -61,23 +49,33 @@ func JSONMiddleware(next http.Handler) http.Handler {
 
 func AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tokenString := r.Header.Get("Authorization")
+		var tokenString string
+
+		// 1. Try to get token from cookie
+		cookie, err := r.Cookie("token")
+		if err == nil {
+			tokenString = cookie.Value
+			// fmt.Println("Token found in cookie") // You can uncomment this if you have fmt imported
+		} else {
+			// fmt.Println("Token NOT found in cookie:", err)
+		}
+
+		// 2. Fallback to Authorization header if cookie not found
+		if tokenString == "" {
+			tokenString = r.Header.Get("Authorization")
+			if tokenString != "" {
+				// Strip "Bearer " prefix if present (case-insensitive)
+				if strings.HasPrefix(strings.ToLower(tokenString), "bearer ") {
+					tokenString = strings.TrimSpace(tokenString[7:])
+				} else {
+					tokenString = strings.TrimSpace(tokenString)
+				}
+			}
+		}
+
 		if tokenString == "" {
 			w.WriteHeader(http.StatusUnauthorized)
 			json.NewEncoder(w).Encode(Error(http.StatusUnauthorized, "Authorization token not provided"))
-			return
-		}
-
-		// Strip "Bearer " prefix if present (case-insensitive)
-		if strings.HasPrefix(strings.ToLower(tokenString), "bearer ") {
-			tokenString = strings.TrimSpace(tokenString[7:])
-		} else {
-			tokenString = strings.TrimSpace(tokenString)
-		}
-
-		if tokenString == "" {
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(Error(http.StatusUnauthorized, "Invalid authorization token format"))
 			return
 		}
 

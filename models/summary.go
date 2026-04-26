@@ -8,6 +8,13 @@ type MonthlySummary struct {
 	Pengeluaran float64 `json:"pengeluaran"`
 }
 
+// ChartData represents data points for harian, mingguan, or bulanan charts.
+type ChartData struct {
+	Label       string  `json:"label"` // E.g., "Monday", "01 Jan", or "January"
+	Pemasukan   float64 `json:"pemasukan"`
+	Pengeluaran float64 `json:"pengeluaran"`
+}
+
 // OverallSummary represents the total income and expense across all transactions.
 type OverallSummary struct {
 	TotalPemasukan   float64 `json:"total_pemasukan"`

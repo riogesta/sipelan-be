@@ -33,6 +33,8 @@ func main() {
 	// Public routes
 	r.Route("/auth", func(r chi.Router) {
 		r.Post("/login", handlers.Auth)
+		r.Post("/register", handlers.Register)
+		r.Post("/logout", handlers.Logout)
 	})
 
 	// Protected routes
@@ -60,6 +62,11 @@ func main() {
 		// Summary / Dashboard
 		r.Get("/summary", handlers.GetSummary)
 		r.Get("/summary/monthly", handlers.GetMonthlySummary)
+		r.Get("/summary/chart", handlers.GetChartData)
+		r.Get("/summary/budget", handlers.GetBudgetSummary)
+
+		// Budgets
+		r.Post("/budgets", handlers.SetBudget)
 
 		// Persons (legacy)
 		r.HandleFunc("/persons", handlers.PersonHandler)
