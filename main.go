@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sipelan/api"
 	"sipelan/common"
 	"sipelan/config"
 	"sipelan/database"
-	"sipelan/handlers"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
@@ -24,53 +27,13 @@ func main() {
 
 	database.Connect()
 
-	r := chi.NewRouter()
+	// Use the new professional router with config
+	r := api.NewRouter(cfg)
 
-	// Global middleware
-	r.Use(common.CORSMiddleware(cfg.AllowedOrigins))
-	r.Use(common.JSONMiddleware)
-
-	// Public routes
-	r.Route("/auth", func(r chi.Router) {
-		r.Post("/login", handlers.Auth)
-		r.Post("/register", handlers.Register)
-		r.Post("/logout", handlers.Logout)
-	})
-
-	// Protected routes
-	r.Route("/api", func(r chi.Router) {
-		r.Use(common.AuthMiddleware)
-
-		// Categories
-		r.Route("/categories", func(r chi.Router) {
-			r.Get("/", handlers.GetAllCategories)
-			r.Post("/", handlers.CreateCategory)
-			r.Get("/{id}", handlers.GetCategoryByID)
-			r.Put("/{id}", handlers.UpdateCategory)
-			r.Delete("/{id}", handlers.DeleteCategory)
-		})
-
-		// Transactions
-		r.Route("/transactions", func(r chi.Router) {
-			r.Get("/", handlers.GetAllTransactions)
-			r.Post("/", handlers.CreateTransaction)
-			r.Get("/{id}", handlers.GetTransactionByID)
-			r.Put("/{id}", handlers.UpdateTransaction)
-			r.Delete("/{id}", handlers.DeleteTransaction)
-		})
-
-		// Summary / Dashboard
-		r.Get("/summary", handlers.GetSummary)
-		r.Get("/summary/monthly", handlers.GetMonthlySummary)
-		r.Get("/summary/chart", handlers.GetChartData)
-		r.Get("/summary/budget", handlers.GetBudgetSummary)
-
-		// Budgets
-		r.Post("/budgets", handlers.SetBudget)
-
-		// Persons (legacy)
-		r.HandleFunc("/persons", handlers.PersonHandler)
-	})
+	// Serve static files
+	workDir, _ := os.Getwd()
+	filesDir := http.Dir(filepath.Join(workDir, "uploads"))
+	FileServer(r, "/uploads", filesDir)
 
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -81,4 +44,25 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.ServerPort, r); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// FileServer conveniently sets up a http.FileServer handler to serve
+// static files from a http.FileSystem.
+func FileServer(r chi.Router, path string, root http.FileSystem) {
+	if strings.ContainsAny(path, "{}*") {
+		panic("FileServer does not permit any URL parameters.")
+	}
+
+	if path != "/" && path[len(path)-1] != '/' {
+		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
+		path += "/"
+	}
+	path += "*"
+
+	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
+		rctx := chi.RouteContext(r.Context())
+		pathPrefix := strings.TrimSuffix(rctx.RoutePattern(), "/*")
+		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
+		fs.ServeHTTP(w, r)
+	})
 }

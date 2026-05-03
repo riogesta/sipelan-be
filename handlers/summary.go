@@ -43,8 +43,8 @@ func GetMonthlySummary(w http.ResponseWriter, r *http.Request) {
 
 	for _, m := range months {
 		var pemasukan, pengeluaran float64
-		database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ? AND strftime('%m', date) = ? AND strftime('%Y', date) = ?", person.ID, "pemasukan", m, year).Select("COALESCE(SUM(total), 0)").Scan(&pemasukan)
-		database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ? AND strftime('%m', date) = ? AND strftime('%Y', date) = ?", person.ID, "pengeluaran", m, year).Select("COALESCE(SUM(total), 0)").Scan(&pengeluaran)
+		database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ? AND strftime('%m', date, 'localtime') = ? AND strftime('%Y', date, 'localtime') = ?", person.ID, "pemasukan", m, year).Select("COALESCE(SUM(total), 0)").Scan(&pemasukan)
+		database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ? AND strftime('%m', date, 'localtime') = ? AND strftime('%Y', date, 'localtime') = ?", person.ID, "pengeluaran", m, year).Select("COALESCE(SUM(total), 0)").Scan(&pengeluaran)
 
 		monthInt, _ := strconv.Atoi(m)
 		monthName := time.Month(monthInt).String()
@@ -80,10 +80,10 @@ func GetChartData(w http.ResponseWriter, r *http.Request) {
 			monthNum := fmt.Sprintf("%02d", i+1)
 			var in, out float64
 			database.DB.Model(&models.Transaction{}).
-				Where("person_id = ? AND type = ? AND strftime('%m', date) = ? AND strftime('%Y', date) = ?", person.ID, "pemasukan", monthNum, year).
+				Where("person_id = ? AND type = ? AND strftime('%m', date, 'localtime') = ? AND strftime('%Y', date, 'localtime') = ?", person.ID, "pemasukan", monthNum, year).
 				Select("COALESCE(SUM(total), 0)").Scan(&in)
 			database.DB.Model(&models.Transaction{}).
-				Where("person_id = ? AND type = ? AND strftime('%m', date) = ? AND strftime('%Y', date) = ?", person.ID, "pengeluaran", monthNum, year).
+				Where("person_id = ? AND type = ? AND strftime('%m', date, 'localtime') = ? AND strftime('%Y', date, 'localtime') = ?", person.ID, "pengeluaran", monthNum, year).
 				Select("COALESCE(SUM(total), 0)").Scan(&out)
 			results = append(results, models.ChartData{Label: monthName, Pemasukan: in, Pengeluaran: out})
 		}
@@ -92,18 +92,18 @@ func GetChartData(w http.ResponseWriter, r *http.Request) {
 		for i := 6; i >= 0; i-- {
 			var in, out float64
 			var label string
+			var queryDate string
 			
 			// Get date string for the query (e.g., '2024-04-26')
-			queryDate := ""
 			database.DB.Raw("SELECT date('now', 'localtime', ?)", fmt.Sprintf("-%d day", i)).Scan(&queryDate)
 			// Get formatted label
-			database.DB.Raw("SELECT strftime('%d/%m', date('now', 'localtime', ?))", fmt.Sprintf("-%d day", i)).Scan(&label)
+			database.DB.Raw("SELECT strftime('%d/%m', 'now', 'localtime', ?)", fmt.Sprintf("-%d day", i)).Scan(&label)
 
 			database.DB.Model(&models.Transaction{}).
-				Where("person_id = ? AND type = ? AND date(date) = ?", person.ID, "pemasukan", queryDate).
+				Where("person_id = ? AND type = ? AND date(date, 'localtime') = ?", person.ID, "pemasukan", queryDate).
 				Select("COALESCE(SUM(total), 0)").Scan(&in)
 			database.DB.Model(&models.Transaction{}).
-				Where("person_id = ? AND type = ? AND date(date) = ?", person.ID, "pengeluaran", queryDate).
+				Where("person_id = ? AND type = ? AND date(date, 'localtime') = ?", person.ID, "pengeluaran", queryDate).
 				Select("COALESCE(SUM(total), 0)").Scan(&out)
 			
 			results = append(results, models.ChartData{Label: label, Pemasukan: in, Pengeluaran: out})
@@ -112,13 +112,14 @@ func GetChartData(w http.ResponseWriter, r *http.Request) {
 		// Group by day for the CURRENT month FOR THIS PERSON
 		rows, err := database.DB.Raw(`
 			SELECT 
-				strftime('%d', date) as day_label, 
+				strftime('%d', date, 'localtime') as day_label, 
 				SUM(CASE WHEN type = 'pemasukan' THEN total ELSE 0 END) as in_total,
 				SUM(CASE WHEN type = 'pengeluaran' THEN total ELSE 0 END) as out_total
 			FROM transactions 
 			WHERE person_id = ? 
-			  AND strftime('%m', date) = strftime('%m', 'now', 'localtime') 
-			  AND strftime('%Y', date) = strftime('%Y', 'now', 'localtime')
+			  AND strftime('%m', date, 'localtime') = strftime('%m', 'now', 'localtime') 
+			  AND strftime('%Y', date, 'localtime') = strftime('%Y', 'now', 'localtime')
+			  AND deleted_at IS NULL
 			GROUP BY day_label 
 			ORDER BY day_label ASC
 		`, person.ID).Rows()
@@ -136,4 +137,28 @@ func GetChartData(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(common.Success("Chart data retrieved", results))
+}
+
+// GetCategorySummary returns the aggregated expenses by category for the current month.
+func GetCategorySummary(w http.ResponseWriter, r *http.Request) {
+	person := r.Context().Value("person").(models.Person)
+
+	var results []models.CategorySummary
+
+	err := database.DB.Table("transactions").
+		Select("categories.name as name, SUM(transactions.total) as value").
+		Joins("JOIN categories ON categories.id = transactions.category_id").
+		Where("transactions.person_id = ? AND transactions.type = ? AND strftime('%m', transactions.date, 'localtime') = strftime('%m', 'now', 'localtime') AND strftime('%Y', transactions.date, 'localtime') = strftime('%Y', 'now', 'localtime') AND transactions.deleted_at IS NULL", person.ID, "pengeluaran").
+		Group("transactions.category_id").
+		Order("value DESC").
+		Scan(&results).Error
+
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, "Failed to retrieve category summary: "+err.Error()))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(common.Success("Category summary retrieved", results))
 }

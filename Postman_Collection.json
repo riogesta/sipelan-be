@@ -43,6 +43,32 @@
 							]
 						}
 					}
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"admin\",\n  \"password\": \"password\",\n  \"name\": \"Administrator\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"auth",
+								"register"
+							]
+						}
+					}
 				}
 			]
 		},
@@ -204,7 +230,7 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/transactions?page=1&limit=10&type=pengeluaran",
+							"raw": "{{base_url}}/api/transactions?page=1&limit=10&type=pengeluaran&start_date=2024-01-01&end_date=2024-12-31&search=makan&category_id=1",
 							"host": [
 								"{{base_url}}"
 							],
@@ -225,6 +251,29 @@
 									"key": "type",
 									"value": "pengeluaran",
 									"description": "pemasukan or pengeluaran",
+									"disabled": true
+								},
+								{
+									"key": "start_date",
+									"value": "2024-01-01",
+									"description": "YYYY-MM-DD",
+									"disabled": true
+								},
+								{
+									"key": "end_date",
+									"value": "2024-12-31",
+									"description": "YYYY-MM-DD",
+									"disabled": true
+								},
+								{
+									"key": "search",
+									"value": "makan",
+									"description": "Keyword in description",
+									"disabled": true
+								},
+								{
+									"key": "category_id",
+									"value": "1",
 									"disabled": true
 								}
 							]
@@ -270,7 +319,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"date\": \"2024-03-20T10:00:00Z\",\n  \"category_id\": 1,\n  \"description\": \"Bayar Makan Siang\",\n  \"total\": 50000,\n  \"type\": \"pengeluaran\",\n  \"attachment\": \"struk.jpg\"\n}"
+							"raw": "{\n  \"date\": \"2024-03-20T10:00:00Z\",\n  \"category_id\": 1,\n  \"description\": \"Bayar Makan Siang\",\n  \"total\": 50000,\n  \"type\": \"pengeluaran\",\n  \"attachment\": \"/uploads/struk.jpg\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/transactions",
@@ -300,7 +349,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n  \"date\": \"2024-03-20T10:00:00Z\",\n  \"category_id\": 1,\n  \"description\": \"Bayar Makan Siang Bersama\",\n  \"total\": 75000,\n  \"type\": \"pengeluaran\",\n  \"attachment\": \"struk2.jpg\"\n}"
+							"raw": "{\n  \"date\": \"2024-03-20T10:00:00Z\",\n  \"category_id\": 1,\n  \"description\": \"Bayar Makan Siang Bersama\",\n  \"total\": 75000,\n  \"type\": \"pengeluaran\",\n  \"attachment\": \"/uploads/struk2.jpg\"\n}"
 						},
 						"url": {
 							"raw": "{{base_url}}/api/transactions/1",
@@ -334,6 +383,43 @@
 								"api",
 								"transactions",
 								"1"
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "Upload",
+			"item": [
+				{
+					"name": "Upload File",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "{{token}}"
+							}
+						],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/upload",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"upload"
 							]
 						}
 					}

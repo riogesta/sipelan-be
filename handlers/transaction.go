@@ -2,43 +2,42 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sipelan/common"
-	"sipelan/database"
+	"sipelan/internal/service"
 	"sipelan/models"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
 
-// GetAllTransactions retrieves all transactions with pagination.
-func GetAllTransactions(w http.ResponseWriter, r *http.Request) {
+type TransactionHandler struct {
+	service service.TransactionService
+}
+
+func NewTransactionHandler(s service.TransactionService) *TransactionHandler {
+	return &TransactionHandler{s}
+}
+
+func (h *TransactionHandler) GetAll(w http.ResponseWriter, r *http.Request) {
 	page, limit := common.GetPaginationParams(r)
 	offset := common.CalculateOffset(page, limit)
 
-	txType := r.URL.Query().Get("type")
+	queryValues := r.URL.Query()
+	filters := map[string]string{
+		"type":        queryValues.Get("type"),
+		"start_date":  queryValues.Get("start_date"),
+		"end_date":    queryValues.Get("end_date"),
+		"search":      queryValues.Get("search"),
+		"category_id": queryValues.Get("category_id"),
+	}
 
 	person := r.Context().Value("person").(models.Person)
 
-	var totalItems int64
-	query := database.DB.Model(&models.Transaction{}).Where("person_id = ?", person.ID)
-	if txType != "" {
-		query = query.Where("type = ?", txType)
-	}
-
-	if err := query.Count(&totalItems).Error; err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
-		return
-	}
-
-	var transactions []models.Transaction
-	txQuery := database.DB.Preload("Category").Where("person_id = ?", person.ID).Limit(limit).Offset(offset).Order("date DESC")
-	if txType != "" {
-		txQuery = txQuery.Where("type = ?", txType)
-	}
-
-	if err := txQuery.Find(&transactions).Error; err != nil {
+	transactions, totalItems, err := h.service.GetAllTransactions(person.ID, filters, limit, offset)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
 		return
@@ -54,89 +53,52 @@ func GetAllTransactions(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(common.NewPaginatedResponse("Success retrieving transactions", transactions, pagination))
 }
 
-// GetTransactionByID retrieves a single transaction by its ID.
-func GetTransactionByID(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Invalid ID"))
-		return
-	}
-
-	person := r.Context().Value("person").(models.Person)
-
-	var transaction models.Transaction
-	if err := database.DB.Preload("Category").Where("person_id = ?", person.ID).First(&transaction, id).Error; err != nil {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(common.Error(http.StatusNotFound, "Transaction not found"))
-		return
-	}
-
-	json.NewEncoder(w).Encode(common.Success("Transaction found", transaction))
-}
-
-// CreateTransaction creates a new transaction.
-func CreateTransaction(w http.ResponseWriter, r *http.Request) {
+func (h *TransactionHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var transaction models.Transaction
 	if err := json.NewDecoder(r.Body).Decode(&transaction); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Invalid request body: "+err.Error()))
+		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Invalid request body"))
 		return
 	}
 
-	if transaction.Type != "pemasukan" && transaction.Type != "pengeluaran" {
+	if validationErrors := common.ValidateStruct(transaction); validationErrors != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Type must be 'pemasukan' or 'pengeluaran'"))
-		return
-	}
-
-	if transaction.Total <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Total must be greater than 0"))
-		return
-	}
-
-	var category models.Category
-	if err := database.DB.First(&category, transaction.CategoryID).Error; err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Category not found"))
+		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, common.FormatValidationError(validationErrors)))
 		return
 	}
 
 	person := r.Context().Value("person").(models.Person)
 	transaction.PersonID = person.ID
 
-	result := database.DB.Create(&transaction)
-	if result.Error != nil {
+	if err := h.service.CreateTransaction(&transaction); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, result.Error.Error()))
+		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	database.DB.Preload("Category").First(&transaction, transaction.ID)
+	// Preload for response
+	tx, _ := h.service.GetTransactionByID(transaction.ID, person.ID)
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(common.Success("Transaction created", transaction))
+	json.NewEncoder(w).Encode(common.Success("Transaction created", tx))
 }
 
-// UpdateTransaction updates an existing transaction by its ID.
-func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Invalid ID"))
-		return
-	}
-
+func (h *TransactionHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
 	person := r.Context().Value("person").(models.Person)
 
-	var transaction models.Transaction
-	if err := database.DB.Where("person_id = ?", person.ID).First(&transaction, id).Error; err != nil {
+	transaction, err := h.service.GetTransactionByID(uint(id), person.ID)
+	if err != nil {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(common.Error(http.StatusNotFound, "Transaction not found"))
 		return
 	}
 
+	json.NewEncoder(w).Encode(common.Success("Transaction retrieved", transaction))
+}
+
+func (h *TransactionHandler) Update(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
 	var input models.Transaction
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -144,46 +106,48 @@ func UpdateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if input.Type != "" && input.Type != "pemasukan" && input.Type != "pengeluaran" {
+	if validationErrors := common.ValidateStruct(input); validationErrors != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Type must be 'pemasukan' or 'pengeluaran'"))
+		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, common.FormatValidationError(validationErrors)))
 		return
 	}
 
-	transaction.Date = input.Date
-	transaction.CategoryID = input.CategoryID
-	transaction.Description = input.Description
-	transaction.Total = input.Total
-	transaction.Type = input.Type
-	transaction.Attachment = input.Attachment
-
-	if err := database.DB.Save(&transaction).Error; err != nil {
+	person := r.Context().Value("person").(models.Person)
+	transaction, err := h.service.UpdateTransaction(uint(id), person.ID, &input)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	database.DB.Preload("Category").First(&transaction, transaction.ID)
-
 	json.NewEncoder(w).Encode(common.Success("Transaction updated", transaction))
 }
 
-// DeleteTransaction deletes a transaction by its ID.
-func DeleteTransaction(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(chi.URLParam(r, "id"))
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(common.Error(http.StatusBadRequest, "Invalid ID"))
-		return
-	}
-
+func (h *TransactionHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.Atoi(chi.URLParam(r, "id"))
 	person := r.Context().Value("person").(models.Person)
 
-	if err := database.DB.Where("person_id = ?", person.ID).Delete(&models.Transaction{}, id).Error; err != nil {
+	if err := h.service.DeleteTransaction(uint(id), person.ID); err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
 	json.NewEncoder(w).Encode(common.Success("Transaction deleted", nil))
+}
+
+func (h *TransactionHandler) GetCategorySummary(w http.ResponseWriter, r *http.Request) {
+	person := r.Context().Value("person").(models.Person)
+	now := time.Now()
+	month := fmt.Sprintf("%02d", now.Month())
+	year := strconv.Itoa(now.Year())
+
+	results, err := h.service.GetCategorySummary(person.ID, month, year)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
+		return
+	}
+
+	json.NewEncoder(w).Encode(common.Success("Category summary retrieved", results))
 }

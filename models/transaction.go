@@ -11,15 +11,15 @@ type Transaction struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
-	Date        time.Time      `json:"date"`
-	Description string         `json:"description"`
-	Total       float64        `json:"total"`
-	Type        string         `json:"type"` // "pengeluaran", "pemasukan"
+	Date        time.Time      `json:"date" validate:"required"`
+	Description string         `json:"description" validate:"required"`
+	Total       float64        `json:"total" validate:"gt=0"`
+	Type        string         `json:"type" validate:"required,oneof=pemasukan pengeluaran"` // "pengeluaran", "pemasukan"
 	Attachment  string         `json:"attachment"`
 
-	CategoryID uint     `json:"category_id"`
-	Category   Category `gorm:"foreignKey:CategoryID" json:"category"`
+	CategoryID uint     `json:"category_id" validate:"required"`
+	Category   Category `gorm:"foreignKey:CategoryID" json:"category" validate:"-"`
 
 	PersonID uint   `json:"person_id"`
-	Person   Person `gorm:"foreignKey:PersonID" json:"-"`
+	Person   Person `gorm:"foreignKey:PersonID" json:"-" validate:"-"`
 }

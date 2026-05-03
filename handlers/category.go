@@ -84,9 +84,11 @@ func CreateCategory(w http.ResponseWriter, r *http.Request) {
 
 	// validation: check if category with the same name already exists for this person (case-insensitive)
 	var existingCategory models.Category
-	if err := database.DB.Where("person_id = ? AND LOWER(name) = LOWER(?)", person.ID, category.Name).First(&existingCategory).Error; err == nil {
+	if err := database.DB.Unscoped().Where("person_id = ? AND LOWER(name) = LOWER(?)", person.ID, category.Name).First(&existingCategory).Error; err == nil {
+		// If it exists but was deleted, we could either restore it or tell the user.
+		// For now, let's just say it already exists to prevent duplicates in the DB.
 		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(common.Error(http.StatusConflict, "Category with this name already exists"))
+		json.NewEncoder(w).Encode(common.Error(http.StatusConflict, "Category with this name already exists (it might be in your deleted categories)"))
 		return
 	}
 
@@ -139,7 +141,7 @@ func UpdateCategory(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(common.Success("Category updated", category))
 }
 
-// DeleteCategory deletes a category by its ID.
+// DeleteCategory deletes a category by its ID and also its associated budgets.
 func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(chi.URLParam(r, "id"))
 	if err != nil {
@@ -150,11 +152,26 @@ func DeleteCategory(w http.ResponseWriter, r *http.Request) {
 
 	person := r.Context().Value("person").(models.Person)
 
-	if err := database.DB.Where("person_id = ?", person.ID).Delete(&models.Category{}, id).Error; err != nil {
+	// Start transaction to ensure both category and its budgets are deleted
+	tx := database.DB.Begin()
+
+	// Delete budgets associated with this category
+	if err := tx.Where("category_id = ? AND person_id = ?", id, person.ID).Delete(&models.Budget{}).Error; err != nil {
+		tx.Rollback()
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
 		return
 	}
 
-	json.NewEncoder(w).Encode(common.Success("Category deleted", nil))
+	// Delete the category itself
+	if err := tx.Where("person_id = ?", person.ID).Delete(&models.Category{}, id).Error; err != nil {
+		tx.Rollback()
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(common.Error(http.StatusInternalServerError, err.Error()))
+		return
+	}
+
+	tx.Commit()
+
+	json.NewEncoder(w).Encode(common.Success("Category and its budgets deleted", nil))
 }

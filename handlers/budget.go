@@ -96,10 +96,15 @@ func GetBudgetSummary(w http.ResponseWriter, r *http.Request) {
 
 	var results []BudgetUsage
 	for _, b := range budgets {
+		// If category was soft-deleted, Preload will not find it and ID will be 0
+		if b.Category.ID == 0 {
+			continue
+		}
+
 		var used float64
 		// Sum expenses for this category in the given month/year FOR THIS PERSON
 		database.DB.Model(&models.Transaction{}).
-			Where("person_id = ? AND category_id = ? AND type = 'pengeluaran' AND strftime('%m', date) = ? AND strftime('%Y', date) = ?",
+			Where("person_id = ? AND category_id = ? AND type = 'pengeluaran' AND strftime('%m', date, 'localtime') = ? AND strftime('%Y', date, 'localtime') = ?",
 				person.ID, b.CategoryID, fmt.Sprintf("%02d", month), strconv.Itoa(year)).
 			Select("COALESCE(SUM(total), 0)").
 			Scan(&used)

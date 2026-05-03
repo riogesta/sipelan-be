@@ -21,3 +21,9 @@ type OverallSummary struct {
 	TotalPengeluaran float64 `json:"total_pengeluaran"`
 	Balance          float64 `json:"balance"`
 }
+
+// CategorySummary represents total spending per category.
+type CategorySummary struct {
+	Name  string  `json:"name"`
+	Value float64 `json:"value"`
+}
