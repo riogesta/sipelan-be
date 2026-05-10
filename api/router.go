@@ -74,6 +74,12 @@ func NewRouter(cfg *config.Config) *chi.Mux {
 		// Budgets
 		r.Post("/budgets", handlers.SetBudget)
 
+		// Monthly Targets
+		r.Route("/monthly-targets", func(r chi.Router) {
+			r.Get("/", handlers.GetMonthlyTarget)
+			r.Post("/", handlers.SetMonthlyTarget)
+		})
+
 		// Upload
 		r.Post("/upload", handlers.UploadFile)
 

@@ -11,3 +11,11 @@ type Budget struct {
 	Month      int      `json:"month"`
 	Year       int      `json:"year"`
 }
+
+type MonthlyTarget struct {
+	gorm.Model
+	PersonID uint    `json:"person_id"`
+	Amount   float64 `json:"amount"`
+	Month    int     `json:"month"`
+	Year     int     `json:"year"`
+}

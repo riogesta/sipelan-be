@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -15,10 +16,21 @@ import (
 func GetSummary(w http.ResponseWriter, r *http.Request) {
 	person := r.Context().Value("person").(models.Person)
 
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
 	var totalPemasukan, totalPengeluaran float64
 
-	database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ?", person.ID, "pemasukan").Select("COALESCE(SUM(total), 0)").Scan(&totalPemasukan)
-	database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ?", person.ID, "pengeluaran").Select("COALESCE(SUM(total), 0)").Scan(&totalPengeluaran)
+	dbIn := database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ?", person.ID, "pemasukan")
+	dbOut := database.DB.Model(&models.Transaction{}).Where("person_id = ? AND type = ?", person.ID, "pengeluaran")
+
+	if startDate != "" && endDate != "" {
+		dbIn = dbIn.Where("date(date, 'localtime') BETWEEN ? AND ?", startDate, endDate)
+		dbOut = dbOut.Where("date(date, 'localtime') BETWEEN ? AND ?", startDate, endDate)
+	}
+
+	dbIn.Select("COALESCE(SUM(total), 0)").Scan(&totalPemasukan)
+	dbOut.Select("COALESCE(SUM(total), 0)").Scan(&totalPengeluaran)
 
 	summary := models.OverallSummary{
 		TotalPemasukan:   totalPemasukan,
@@ -59,11 +71,11 @@ func GetMonthlySummary(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(common.Success("Monthly summary retrieved", results))
 }
 
-// GetChartData returns flexible chart data based on the 'view' parameter (daily, weekly, monthly) for the authenticated user.
+// GetChartData returns flexible chart data based on the 'view' parameter (daily, weekly, monthly, custom) for the authenticated user.
 func GetChartData(w http.ResponseWriter, r *http.Request) {
 	person := r.Context().Value("person").(models.Person)
 	
-	view := r.URL.Query().Get("view") // daily, weekly, monthly
+	view := r.URL.Query().Get("view") // daily, weekly, monthly, custom
 	if view == "" {
 		view = "monthly"
 	}
@@ -108,23 +120,45 @@ func GetChartData(w http.ResponseWriter, r *http.Request) {
 			
 			results = append(results, models.ChartData{Label: label, Pemasukan: in, Pengeluaran: out})
 		}
-	} else if view == "daily" {
-		// Group by day for the CURRENT month FOR THIS PERSON
-		rows, err := database.DB.Raw(`
-			SELECT 
-				strftime('%d', date, 'localtime') as day_label, 
-				SUM(CASE WHEN type = 'pemasukan' THEN total ELSE 0 END) as in_total,
-				SUM(CASE WHEN type = 'pengeluaran' THEN total ELSE 0 END) as out_total
-			FROM transactions 
-			WHERE person_id = ? 
-			  AND strftime('%m', date, 'localtime') = strftime('%m', 'now', 'localtime') 
-			  AND strftime('%Y', date, 'localtime') = strftime('%Y', 'now', 'localtime')
-			  AND deleted_at IS NULL
-			GROUP BY day_label 
-			ORDER BY day_label ASC
-		`, person.ID).Rows()
+	} else if view == "daily" || view == "custom" {
+		startDate := r.URL.Query().Get("start_date")
+		endDate := r.URL.Query().Get("end_date")
+
+		var rows *sql.Rows
+		var err error
+
+		if startDate != "" && endDate != "" {
+			// Group by day for the specific range
+			rows, err = database.DB.Raw(`
+				SELECT 
+					strftime('%d/%m', date, 'localtime') as day_label, 
+					SUM(CASE WHEN type = 'pemasukan' THEN total ELSE 0 END) as in_total,
+					SUM(CASE WHEN type = 'pengeluaran' THEN total ELSE 0 END) as out_total
+				FROM transactions 
+				WHERE person_id = ? 
+				  AND date(date, 'localtime') BETWEEN ? AND ?
+				  AND deleted_at IS NULL
+				GROUP BY date(date, 'localtime')
+				ORDER BY date(date, 'localtime') ASC
+			`, person.ID, startDate, endDate).Rows()
+		} else if view == "daily" {
+			// Group by day for the CURRENT month FOR THIS PERSON
+			rows, err = database.DB.Raw(`
+				SELECT 
+					strftime('%d', date, 'localtime') as day_label, 
+					SUM(CASE WHEN type = 'pemasukan' THEN total ELSE 0 END) as in_total,
+					SUM(CASE WHEN type = 'pengeluaran' THEN total ELSE 0 END) as out_total
+				FROM transactions 
+				WHERE person_id = ? 
+				  AND strftime('%m', date, 'localtime') = strftime('%m', 'now', 'localtime') 
+				  AND strftime('%Y', date, 'localtime') = strftime('%Y', 'now', 'localtime')
+				  AND deleted_at IS NULL
+				GROUP BY day_label 
+				ORDER BY day_label ASC
+			`, person.ID).Rows()
+		}
 		
-		if err == nil {
+		if err == nil && rows != nil {
 			defer rows.Close()
 			for rows.Next() {
 				var label string
